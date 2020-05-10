@@ -126,6 +126,15 @@ class PetitionWatcher:
                 self.logger.debug(f"Updating petition: {petition}")
                 self.import_petition(petition)
 
+        # Update those that we already know about that haven't changed
+        if petitions['update_fake']:
+            self.logger.info(f"Updating {len(petitions['update_fake'])} "
+                              "(unchanged) petitions")
+
+            for petition in petitions['update_fake']:
+                self.logger.debug(f"Updating petition: {petition}")
+                self.duplicate_data(petition)
+
     def import_petition(self, petition_id):
         """
         """
@@ -159,6 +168,42 @@ class PetitionWatcher:
         self._snapshot_by_region(petition, data['signatures_by_region'], current_date)
         self._snapshot_by_constituency(
             petition, data['signatures_by_constituency'], current_date)
+
+    def duplicate_data(self, petition_id):
+        """
+        """
+
+        # Get the existing petition object
+        petition = models.Petition.select().where(
+            models.Petition.id == petition_id).get()
+
+        current_date = datetime.datetime.now()
+        snapshotmodels = [
+            models.PetitionSnapshot,
+            models.PetitionSnapshotByCountry,
+            models.PetitionSnapshotByRegion,
+            models.PetitionSnapshotByConstituency,
+            models.PetitionSnapshotByParty]
+
+        # Iterate over all the models we want to duplicate and copy their data
+        # into a new object
+        for model in snapshotmodels:
+            model_data = []
+            objects = model.select().where(
+                (model.petition == petition) &
+                (model.date == petition.date))
+
+            for obj in objects:
+                data = obj.__dict__['__data__']
+                data['date'] = current_date
+                data.pop('id')
+                model_data.append(data)
+
+            model.insert_many(model_data).execute()
+
+        # Finally update the petition object
+        petition.date = current_date
+        petition.save()
 
     def _snapshot_by_country(self, petition, data, date):
         """
