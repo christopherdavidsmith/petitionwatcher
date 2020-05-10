@@ -116,6 +116,14 @@ class PetitionWatcher:
         if petitions['import']:
             self.logger.info(f"Importing {len(petitions['import'])} petitions")
             for petition in petitions['import']:
+                self.logger.debug(f"Importing petition: {petition}")
+                self.import_petition(petition)
+
+        # Update those that we already know about and have changed
+        if petitions['update']:
+            self.logger.info(f"Updating {len(petitions['update'])} petitions")
+            for petition in petitions['update']:
+                self.logger.debug(f"Updating petition: {petition}")
                 self.import_petition(petition)
 
     def import_petition(self, petition_id):
@@ -123,7 +131,6 @@ class PetitionWatcher:
         """
 
         # Fetch petition data
-        self.logger.debug(f"Importing petition: {petition_id}")
         url = f'https://petition.parliament.uk/petitions/{petition_id}.json'
         response = requests.get(url)
         data = response.json()['data']['attributes']
