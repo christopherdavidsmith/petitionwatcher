@@ -6,12 +6,15 @@ import json
 import models
 import re
 import time
+import logging
+import logging.config
 
 
 class PetitionWatcher:
     def __init__(self):
         """
         """
+        self.logger = logging.getLogger(__name__)
         self.database = peewee.SqliteDatabase('petitions.db')
         models.proxy.initialize(self.database)
         self.database.create_tables([
@@ -33,6 +36,11 @@ class PetitionWatcher:
         """
         """
 
+        # Only continue if there is no party or constituency data in our
+        # database
+        if models.Party.select() or models.Constituency.select():
+            return
+
         # Construct API URL
         domain = 'http://data.parliament.uk'
         path = '/membersdataplatform/services/mnis/members/query/'
@@ -45,11 +53,13 @@ class PetitionWatcher:
         data = json.loads(response.text)
 
         # Import constituency and party date
+        self.logger.info("Importing constituency and party data")
         with self.database.atomic():
             for mp in data['Members']['Member']:
                 party = mp['Party']['#text']
                 party, created = models.Party.get_or_create(name=party)
                 models.Constituency.create(name=mp['MemberFrom'], party=party)
+                self.logger.info(f"Constituency imported: {mp['MemberFrom']}")
 
     def import_petitions(self):
         """
@@ -68,7 +78,9 @@ class PetitionWatcher:
 
         # Iterate 
         petitions = {'import': [], 'update': [], 'update_fake': []}
+        self.logger.info("Identifying petitions to import/update")
         for page in range(1, last_page + 1):
+            self.logger.info(f"Scraping url: {url}")
             for petition in response['data']:
                 signatures = petition['attributes']['signature_count']
                 obj = models.Petition.get_or_none(id=petition['id'])
@@ -77,7 +89,7 @@ class PetitionWatcher:
                 # imported
                 if not obj:
                     petitions['import'].append(petition['id'])
-                    continue 
+                    continue
 
                 # Else it will need to be updated
                 if obj.signatures != signatures:
@@ -95,4 +107,31 @@ class PetitionWatcher:
         return petitions
 
 if __name__ == '__main__':
+
+    logging.config.dictConfig({
+        "version": 1,
+        "disable_existing_loggers": True,
+        "formatters": {
+            "standard": {
+                "format": "[%(levelname)s]: %(message)s"
+            },
+        },
+        "handlers": {
+            "default": {
+                "level": "INFO",
+                "formatter": "standard",
+                "class": "logging.StreamHandler",
+                "stream": "ext://sys.stdout"
+            }
+        },
+        "loggers": {
+            '__main__': {
+                'handlers': ['default'],
+                'level': 'DEBUG',
+                'propagate': False
+            },
+        }
+    })
+
     watcher = PetitionWatcher()
+
